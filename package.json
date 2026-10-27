@@ -1,0 +1,28 @@
+{
+  "name": "petzone-data-warehouse",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone OLAP warehouse + reporting API for PetZone POS",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "dw:init": "node scripts/warehouse-init.js",
+    "dw:sync": "node scripts/warehouse-sync-once.js --mode=incremental",
+    "dw:daily": "node scripts/warehouse-sync-once.js --mode=daily",
+    "dw:backfill": "node scripts/warehouse-backfill.js",
+    "dw:rebuild": "node scripts/warehouse-sync-once.js --mode=rebuild",
+    "dw:status": "node scripts/warehouse-status.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "mysql2": "^3.15.3"
+  }
+}

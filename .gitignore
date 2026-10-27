@@ -1,0 +1,67 @@
+node_modules/
+.env
+.env.*
+!.env.example
+npm-debug.log*
+logs/
+
+# Test and debug scripts
+checkdb.js
+findoltp.js
+findreturn.js
+*.txt
+
+# Database connection test outputs
+alldbs.txt
+alldbs2.txt
+bf.txt
+both.txt
+bserv.txt
+cd.txt
+check.txt
+check3.txt
+check4.txt
+conn.txt
+conn2.txt
+conn3.txt
+conn4.txt
+connretry.txt
+dc1.txt
+dc2.txt
+dbs.txt
+ds.txt
+fr.txt
+fr2.txt
+init*.txt
+inst.txt
+ipconn.txt
+longtry.txt
+ne.txt
+nm.txt
+rr.txt
+s.txt
+s2.txt
+sr.txt
+status*.txt
+t1.txt
+tcount.txt
+tcp.txt
+tn.txt
+ws.txt
+ws2.txt
+wtbl.txt
+
+# Database dump files
+*.sql
+*.dump.sql
+
+# ETL state and cache
+services/warehouse/etlState.js
+*.cache.*
+
+# Generated files
+dist/
+build/
+
+# Test and debug folder (contains investigation files, not part of source code)
+test-files/
