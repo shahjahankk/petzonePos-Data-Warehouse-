@@ -115,8 +115,20 @@ async function buildContext(user, query = {}) {
   // mismatch (sales/clinic use startDate/endDate; financial uses dateFrom/dateTo).
   const rawStart = query.startDate ?? query.dateFrom ?? query.from;
   const rawEnd = query.endDate ?? query.dateTo ?? query.to;
+  // Shift session range — acts as an additional date constraint (intersected
+  // with the main range so only sales within both ranges are included).
+  const rawShiftStart = query.shift_start ?? query.shiftStart;
+  const rawShiftEnd   = query.shift_end   ?? query.shiftEnd;
   let startKey = rawStart ? parseDateKey(rawStart) : null;
-  let endKey = rawEnd ? parseDateKey(rawEnd) : null;
+  let endKey   = rawEnd   ? parseDateKey(rawEnd)   : null;
+  if (rawShiftStart) {
+    const sk = parseDateKey(rawShiftStart);
+    startKey = startKey == null ? sk : Math.max(startKey, sk);
+  }
+  if (rawShiftEnd) {
+    const ek = parseDateKey(rawShiftEnd);
+    endKey = endKey == null ? ek : Math.min(endKey, ek);
+  }
   if (startKey && endKey && startKey > endKey) {
     [startKey, endKey] = [endKey, startKey];
   }
@@ -225,7 +237,9 @@ async function getSalesReports(user, query = {}) {
     const [kpiRows] = await dwPool.execute(
       `SELECT
          COALESCE(SUM(a.transaction_count), 0) AS total_sales,
-         COALESCE(SUM(a.product_sales), 0)     AS total_revenue,
+         COALESCE(SUM(a.product_sales), 0)     AS product_revenue,
+         COALESCE(SUM(a.clinic_sales), 0)      AS clinic_revenue,
+         COALESCE(SUM(a.product_sales) + SUM(CASE WHEN ? THEN a.clinic_sales ELSE 0 END), 0) AS total_revenue,
          COALESCE(SUM(a.cogs), 0)              AS total_cogs,
          COALESCE(SUM(a.gross_profit), 0)      AS gross_profit,
          COALESCE(SUM(CASE WHEN a.payment_group = 'CASH' THEN a.product_sales ELSE 0 END), 0) AS cash_sales,
@@ -249,7 +263,7 @@ async function getSalesReports(user, query = {}) {
          COALESCE(SUM(a.partial_count), 0)     AS partial_count
        FROM agg_sales_daily a
        WHERE 1 = 1 ${w.sql}`,
-      w.params
+      [...w.params, query.include_clinic === 'true' || query.include_clinic === true ? 1 : 0]
     );
 
     const k = kpiRows[0] || {};
@@ -401,6 +415,7 @@ async function getSalesReports(user, query = {}) {
       totalSales,
       totalTransactions: totalSales,
       totalRevenue,
+      clinicRevenue: num(k.clinic_revenue),
       // Average ticket excludes FULLY_CREDIT bills so a single large unpaid
       // credit sale cannot skew it (e.g. one 126,100 bill moves PetZone from
       // ~1,700 to ~3,539). Label the card "Avg Ticket (paid sales)" in the UI.
