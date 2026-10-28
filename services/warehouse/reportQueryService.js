@@ -103,12 +103,16 @@ async function buildContext(user, query = {}) {
       ...(await scopeKeysForAlias('BRANCH', branch)),
       ...(await scopeKeysForAlias('WAREHOUSE', branch)),
     ]);
+    console.log(`[buildContext] branch="${branch}" scopeKeys=${JSON.stringify(keys)}`);
     ctx.scopeKeys = intersect(ctx.scopeKeys, keys);
   }
 
   if (query.cashier && query.cashier !== 'all') {
     ctx.userKeys = await userKeysFor(query.cashier);
+    console.log(`[buildContext] cashier="${query.cashier}" userKeys=${JSON.stringify(ctx.userKeys)}`);
   }
+
+  console.log(`[buildContext] final scopeKeys=${JSON.stringify(ctx.scopeKeys)} userKeys=${JSON.stringify(ctx.userKeys)} impossible=${ctx.impossible} startKey=${ctx.startKey} endKey=${ctx.endKey}`);
 
   // Different clients use different names for the same range. Accept them all
   // so a filter can never be silently ignored because of a parameter-name
