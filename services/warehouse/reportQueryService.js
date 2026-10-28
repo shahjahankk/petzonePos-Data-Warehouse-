@@ -230,6 +230,7 @@ async function getSalesReports(user, query = {}) {
          COALESCE(SUM(a.gross_profit), 0)      AS gross_profit,
          COALESCE(SUM(CASE WHEN a.payment_group = 'CASH' THEN a.product_sales ELSE 0 END), 0) AS cash_sales,
          COALESCE(SUM(CASE WHEN a.payment_group = 'CARD' THEN a.product_sales ELSE 0 END), 0) AS card_sales,
+         COALESCE(SUM(CASE WHEN a.payment_group = 'MOBILE' THEN a.product_sales ELSE 0 END), 0) AS mobile_sales,
          COALESCE(SUM(CASE WHEN a.payment_group = 'FULLY_CREDIT' THEN a.product_sales ELSE 0 END), 0) AS fully_credit,
          COALESCE(SUM(CASE WHEN a.payment_group = 'PARTIAL' THEN a.product_sales ELSE 0 END), 0) AS partial_total,
          COALESCE(SUM(CASE WHEN a.payment_group = 'PARTIAL' THEN a.paid_amount ELSE 0 END), 0) AS partial_collected,
@@ -400,13 +401,20 @@ async function getSalesReports(user, query = {}) {
       totalSales,
       totalTransactions: totalSales,
       totalRevenue,
-      averageTicket: totalSales > 0 ? totalRevenue / totalSales : 0,
+      // Average ticket excludes FULLY_CREDIT bills so a single large unpaid
+      // credit sale cannot skew it (e.g. one 126,100 bill moves PetZone from
+      // ~1,700 to ~3,539). Label the card "Avg Ticket (paid sales)" in the UI.
+      averageTicket:
+        totalSales > num(k.credit_count)
+          ? (totalRevenue - num(k.fully_credit)) / (totalSales - num(k.credit_count))
+          : 0,
       grossProfit,
       totalCostOfGoods: totalCost,
       grossProfitMargin: totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0,
       costPriceWarning: num(zeroRows[0]?.zero_cost) > 0,
       cashSalesAmount: num(k.cash_sales),
       cardSalesAmount: num(k.card_sales),
+      mobileSalesAmount: num(k.mobile_sales),
       fullyCreditTotal: num(k.fully_credit),
       partialTotal: num(k.partial_total),
       partialCollected: num(k.partial_collected),
@@ -427,6 +435,7 @@ async function getSalesReports(user, query = {}) {
       taxCollected: num(k.tax_collected),
       cashSales: num(k.cash_sales),
       cardSales: num(k.card_sales),
+      mobileSales: num(k.mobile_sales),
       salesByDate,
       salesByCashier: cashierMap,
       salesByCashierList: cashierList,
@@ -510,7 +519,7 @@ async function getClinicReports(user, query = {}) {
               COALESCE(cs.category_name, 'Uncategorized') AS category,
               SUM(a.revenue) AS revenue,
               SUM(a.quantity) AS quantity,
-              SUM(a.lines) AS lines
+              SUM(a.\`lines\`) AS \`lines\`
          FROM agg_clinic_daily a
          INNER JOIN dim_clinic_service cs ON cs.service_key = a.service_key
         WHERE 1 = 1 ${w.sql} ${categorySql}
@@ -528,7 +537,7 @@ async function getClinicReports(user, query = {}) {
               COALESCE(cs.category_name, 'Uncategorized') AS category,
               SUM(a.revenue) AS revenue,
               SUM(a.quantity) AS quantity,
-              SUM(a.lines) AS lines
+              SUM(a.\`lines\`) AS \`lines\`
          FROM agg_clinic_daily a
          INNER JOIN dim_clinic_service cs ON cs.service_key = a.service_key
         WHERE 1 = 1 ${w.sql} ${categorySql}
@@ -541,7 +550,7 @@ async function getClinicReports(user, query = {}) {
       `SELECT a.date_key,
               SUM(a.revenue) AS revenue,
               SUM(a.quantity) AS quantity,
-              SUM(a.lines) AS lines
+              SUM(a.\`lines\`) AS \`lines\`
          FROM agg_clinic_daily a
          INNER JOIN dim_clinic_service cs ON cs.service_key = a.service_key
         WHERE 1 = 1 ${w.sql} ${categorySql}
@@ -555,7 +564,7 @@ async function getClinicReports(user, query = {}) {
               COALESCE(d.scope_name, d.scope_id, 'Unknown') AS branch,
               SUM(a.revenue) AS revenue,
               SUM(a.quantity) AS quantity,
-              SUM(a.lines) AS lines
+              SUM(a.\`lines\`) AS \`lines\`
          FROM agg_clinic_daily a
          INNER JOIN dim_clinic_service cs ON cs.service_key = a.service_key
          LEFT JOIN dim_scope d ON d.scope_key = a.scope_key

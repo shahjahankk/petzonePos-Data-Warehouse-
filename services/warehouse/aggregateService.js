@@ -40,12 +40,20 @@ SELECT
   SUM(CASE WHEN t.is_real_sale = 1 AND t.product_total > 0 THEN 1 ELSE 0 END),
   SUM(CASE WHEN t.is_real_sale = 1 THEN 1 ELSE 0 END),
   SUM(CASE WHEN t.is_real_sale = 1 THEN t.total ELSE 0 END),
-  SUM(CASE WHEN t.is_real_sale = 1 THEN t.product_total ELSE 0 END),
+  SUM(CASE WHEN t.is_real_sale = 1 AND t.product_total > 0
+           THEN t.product_total - (CASE WHEN t.subtotal > 0
+                                        THEN t.discount * t.product_total / t.subtotal
+                                        ELSE 0 END)
+           ELSE 0 END),
   SUM(CASE WHEN t.is_real_sale = 1 THEN t.clinic_total ELSE 0 END),
   SUM(CASE WHEN t.is_real_sale = 1 THEN t.product_paid ELSE 0 END),
   SUM(CASE WHEN t.is_real_sale = 1 THEN t.product_collected ELSE 0 END),
   SUM(CASE WHEN t.is_real_sale = 1 THEN t.product_credit ELSE 0 END),
-  SUM(CASE WHEN t.is_real_sale = 1 THEN t.product_discount ELSE 0 END),
+  SUM(CASE WHEN t.is_real_sale = 1 AND t.product_total > 0
+           THEN (CASE WHEN t.subtotal > 0
+                      THEN t.discount * t.product_total / t.subtotal
+                      ELSE 0 END)
+           ELSE 0 END),
   SUM(CASE WHEN t.is_real_sale = 1 THEN t.product_tax ELSE 0 END),
   SUM(CASE WHEN t.is_real_sale = 1 THEN t.cogs ELSE 0 END),
   SUM(CASE WHEN t.is_real_sale = 1 THEN t.gross_profit ELSE 0 END),
@@ -64,7 +72,7 @@ FROM (
     COALESCE(f.user_key, 0)   AS user_key,
     COALESCE(f.payment_method, '') AS payment_method,
     f.is_real_sale, f.is_refund, f.is_settlement,
-    f.total, f.product_total, f.clinic_total, f.payment_amount,
+    f.total, f.subtotal, f.discount, f.product_total, f.clinic_total, f.payment_amount,
     f.product_paid, f.product_collected, f.product_credit,
     f.product_discount, f.product_tax, f.cogs, f.gross_profit,
     CASE
@@ -75,6 +83,7 @@ FROM (
         OR UPPER(COALESCE(f.payment_type, '')) = 'PARTIAL'
         OR UPPER(COALESCE(f.payment_status, '')) = 'PARTIAL' THEN 'PARTIAL'
       WHEN UPPER(COALESCE(f.payment_method, '')) IN ('CARD', 'CREDIT_CARD') THEN 'CARD'
+      WHEN UPPER(COALESCE(f.payment_method, '')) = 'MOBILE_PAYMENT' THEN 'MOBILE'
       ELSE 'CASH'
     END AS payment_group
   FROM fact_sales f
