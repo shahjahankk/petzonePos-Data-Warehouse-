@@ -578,7 +578,7 @@ async function getClinicReports(user, query = {}) {
     const [invoiceRows] = await dwPool.execute(
       `SELECT COUNT(DISTINCT i.sale_id) AS invoices
          FROM fact_sale_items i
-         INNER JOIN fact_sales f ON f.id = i.sale_id
+         INNER JOIN fact_sales f ON f.sale_id = i.sale_id
          INNER JOIN dim_clinic_service cs ON cs.service_key = i.service_key
         WHERE i.is_clinic_line = 1
           AND f.status = 'COMPLETED'
@@ -596,7 +596,7 @@ async function getClinicReports(user, query = {}) {
               f.invoice_no, f.created_at_utc, f.customer_name, f.customer_phone,
               f.date_key, d.scope_id, f.payment_method, u.username AS cashier_name
          FROM fact_sale_items i
-         INNER JOIN fact_sales f ON f.id = i.sale_id
+         INNER JOIN fact_sales f ON f.sale_id = i.sale_id
          INNER JOIN dim_clinic_service cs ON cs.service_key = i.service_key
          LEFT JOIN dim_scope d ON d.scope_key = f.scope_key
          LEFT JOIN dim_user u ON u.user_key = f.user_key
