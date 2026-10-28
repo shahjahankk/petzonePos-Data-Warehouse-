@@ -103,16 +103,12 @@ async function buildContext(user, query = {}) {
       ...(await scopeKeysForAlias('BRANCH', branch)),
       ...(await scopeKeysForAlias('WAREHOUSE', branch)),
     ]);
-    console.log(`[buildContext] branch="${branch}" scopeKeys=${JSON.stringify(keys)}`);
     ctx.scopeKeys = intersect(ctx.scopeKeys, keys);
   }
 
   if (query.cashier && query.cashier !== 'all') {
     ctx.userKeys = await userKeysFor(query.cashier);
-    console.log(`[buildContext] cashier="${query.cashier}" userKeys=${JSON.stringify(ctx.userKeys)}`);
   }
-
-  console.log(`[buildContext] final scopeKeys=${JSON.stringify(ctx.scopeKeys)} userKeys=${JSON.stringify(ctx.userKeys)} impossible=${ctx.impossible} startKey=${ctx.startKey} endKey=${ctx.endKey}`);
 
   // Different clients use different names for the same range. Accept them all
   // so a filter can never be silently ignored because of a parameter-name
@@ -243,7 +239,7 @@ async function getSalesReports(user, query = {}) {
          COALESCE(SUM(a.transaction_count), 0) AS total_sales,
          COALESCE(SUM(a.product_sales), 0)     AS product_revenue,
          COALESCE(SUM(a.clinic_sales), 0)      AS clinic_revenue,
-         COALESCE(SUM(a.product_sales) + SUM(CASE WHEN ? THEN a.clinic_sales ELSE 0 END), 0) AS total_revenue,
+         COALESCE(SUM(a.product_sales), 0)     AS total_revenue,
          COALESCE(SUM(a.cogs), 0)              AS total_cogs,
          COALESCE(SUM(a.gross_profit), 0)      AS gross_profit,
          COALESCE(SUM(CASE WHEN a.payment_group = 'CASH' THEN a.product_sales ELSE 0 END), 0) AS cash_sales,
@@ -267,7 +263,7 @@ async function getSalesReports(user, query = {}) {
          COALESCE(SUM(a.partial_count), 0)     AS partial_count
        FROM agg_sales_daily a
        WHERE 1 = 1 ${w.sql}`,
-      [...w.params, query.include_clinic === 'true' || query.include_clinic === true ? 1 : 0]
+      w.params
     );
 
     const k = kpiRows[0] || {};
