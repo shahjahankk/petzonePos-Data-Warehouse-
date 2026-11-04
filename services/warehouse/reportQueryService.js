@@ -334,14 +334,15 @@ async function getSalesReports(user, query = {}) {
     const [paymentRows] = await dwPool.execute(
       `SELECT CASE WHEN a.payment_group = 'PARTIAL' THEN 'PARTIAL'
                    ELSE UPPER(COALESCE(NULLIF(a.payment_method, ''), 'CASH')) END AS method,
-              SUM(a.transaction_count) AS count,
+            SUM(a.sale_count) AS count,
               SUM(a.product_sales) AS total,
+            SUM(a.clinic_sales) AS clinic_total,
               SUM(a.paid_amount) AS collected,
               SUM(a.credit_amount) AS credit
          FROM agg_sales_daily a
         WHERE 1 = 1 ${w.sql}
         GROUP BY method
-       HAVING SUM(a.transaction_count) > 0
+        HAVING SUM(a.sale_count) > 0 OR SUM(a.clinic_sales) > 0
         ORDER BY total DESC`,
       w.params
     );
@@ -462,6 +463,7 @@ async function getSalesReports(user, query = {}) {
         method: r.method,
         count: num(r.count),
         total: num(r.total),
+        clinicTotal: num(r.clinic_total),
         collected: num(r.collected),
         credit: num(r.credit),
       })),

@@ -80,8 +80,9 @@ FROM (
       WHEN UPPER(COALESCE(f.payment_type, '')) = 'OUTSTANDING_SETTLEMENT' THEN 'SETTLEMENT'
       WHEN UPPER(COALESCE(f.payment_method, '')) = 'FULLY_CREDIT' THEN 'FULLY_CREDIT'
       WHEN UPPER(COALESCE(f.payment_method, '')) = 'PARTIAL'
-        OR UPPER(COALESCE(f.payment_type, '')) = 'PARTIAL'
-        OR UPPER(COALESCE(f.payment_status, '')) = 'PARTIAL' THEN 'PARTIAL'
+        OR UPPER(COALESCE(f.payment_type, '')) IN ('PARTIAL', 'PARTIAL_PAYMENT')
+        OR UPPER(COALESCE(f.payment_status, '')) IN ('PARTIAL', 'PARTIAL_PAYMENT')
+        OR (COALESCE(f.credit_amount, 0) > 0 AND COALESCE(f.payment_amount, 0) > 0) THEN 'PARTIAL'
       WHEN UPPER(COALESCE(f.payment_method, '')) IN ('CARD', 'CREDIT_CARD') THEN 'CARD'
       WHEN UPPER(COALESCE(f.payment_method, '')) = 'MOBILE_PAYMENT' THEN 'MOBILE'
       ELSE 'CASH'

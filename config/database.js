@@ -22,12 +22,15 @@ const dbConfig = {
   keepAliveInitialDelay: 0,
   enableKeepAlive: true,
   charset: 'utf8mb4',
-  timezone: '+05:00',
+  timezone: 'Z',
   supportBigNumbers: true,
   bigNumberStrings: true,
 };
 
 const pool = mysql.createPool(dbConfig);
+pool.on('connection', (connection) => {
+  connection.query("SET time_zone = '+00:00'");
+});
 
 async function connectDB() {
   try {
