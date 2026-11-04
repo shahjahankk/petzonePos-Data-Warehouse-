@@ -213,6 +213,7 @@ function emptySalesReport() {
     fullyCreditCount: 0,
     partialCount: 0,
     discounts: 0,
+    clinicDiscount: 0,
     taxCollected: 0,
     cashSales: 0,
     cardSales: 0,
@@ -233,6 +234,7 @@ async function getSalesReports(user, query = {}) {
 
   return cached(`sales:${user?.id}:${contextKey(ctx)}`, async () => {
     const w = filterSql('a', ctx);
+    const fw = filterSql('f', ctx);
 
     const [kpiRows] = await dwPool.execute(
       `SELECT
@@ -267,6 +269,16 @@ async function getSalesReports(user, query = {}) {
     );
 
     const k = kpiRows[0] || {};
+    const [clinicDiscountRows] = await dwPool.execute(
+      `SELECT COALESCE(SUM(CASE WHEN f.is_real_sale = 1 AND f.subtotal > 0
+                                THEN f.discount * f.clinic_total / f.subtotal
+                                ELSE 0 END), 0) AS clinic_discount
+         FROM fact_sales f
+        WHERE f.deleted_at IS NULL
+          AND f.status = 'COMPLETED'
+          ${fw.sql}`,
+      fw.params
+    );
     const totalSales = num(k.total_sales);
     const totalRevenue = num(k.total_revenue);
     const totalCost = num(k.total_cogs);
@@ -347,7 +359,6 @@ async function getSalesReports(user, query = {}) {
       w.params
     );
 
-    const fw = filterSql('f', ctx);
     const [recentRows] = await dwPool.execute(
       `SELECT f.sale_id, f.invoice_no, f.created_at_utc, f.date_key, f.customer_name,
               f.customer_phone, f.total, f.product_total, f.payment_amount,
@@ -450,6 +461,7 @@ async function getSalesReports(user, query = {}) {
       fullyCreditCount: num(k.credit_count),
       partialCount: num(k.partial_count),
       discounts: num(k.discounts),
+      clinicDiscount: num(clinicDiscountRows[0]?.clinic_discount),
       taxCollected: num(k.tax_collected),
       cashSales: num(k.cash_sales),
       cardSales: num(k.card_sales),

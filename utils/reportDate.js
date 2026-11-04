@@ -1,12 +1,11 @@
 /**
  * Report date helpers.
  *
- * The application stores timestamps in UTC. Business reports are viewed in
- * Pakistan time (+05:00), so DATE() filters must convert UTC to the report
- * timezone first.
+ * Source-calendar reports convert UTC timestamps to the source DB server's
+ * timezone before extracting their date.
  */
 
-const REPORT_TIMEZONE = process.env.REPORT_TIMEZONE || '+05:00';
+const REPORT_TIMEZONE = process.env.REPORT_TIMEZONE || 'SYSTEM';
 
 /**
  * Returns a SQL expression that converts a UTC timestamp column to the report

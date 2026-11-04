@@ -1,15 +1,14 @@
 /**
  * Single source of truth for business dates in the warehouse.
  *
- * OLTP stores timestamps in UTC. Every report is viewed in the configured
- * business timezone (default Asia/Karachi). Dates are normalised ONCE here,
+ * OLTP timestamps are normalized to the source-calendar timezone. Dates are normalized ONCE here,
  * during ETL, and stored as integer keys:
  *
  *   date_key  = YYYYMMDD  (e.g. 20261023)
  *   month_key = YYYYMM    (e.g. 202610)
  */
 
-const REPORT_TIMEZONE_NAME = process.env.REPORT_TIMEZONE_NAME || 'Asia/Karachi';
+const REPORT_TIMEZONE_NAME = process.env.REPORT_TIMEZONE_NAME || 'Europe/Berlin';
 
 const partsFormatter = new Intl.DateTimeFormat('en-US', {
   timeZone: REPORT_TIMEZONE_NAME,

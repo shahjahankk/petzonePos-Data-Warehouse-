@@ -45,7 +45,11 @@ SELECT
                                         THEN t.discount * t.product_total / t.subtotal
                                         ELSE 0 END)
            ELSE 0 END),
-  SUM(CASE WHEN t.is_real_sale = 1 THEN t.clinic_total ELSE 0 END),
+  SUM(CASE WHEN t.is_real_sale = 1
+           THEN t.clinic_total - (CASE WHEN t.subtotal > 0
+                                        THEN t.discount * t.clinic_total / t.subtotal
+                                        ELSE 0 END)
+           ELSE 0 END),
   SUM(CASE WHEN t.is_real_sale = 1 THEN t.product_paid ELSE 0 END),
   SUM(CASE WHEN t.is_real_sale = 1 THEN t.product_collected ELSE 0 END),
   SUM(CASE WHEN t.is_real_sale = 1 THEN t.product_credit ELSE 0 END),

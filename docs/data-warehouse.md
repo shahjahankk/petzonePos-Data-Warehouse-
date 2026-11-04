@@ -21,8 +21,8 @@ Goal:
 * Daily consolidated load at a configurable time (default 12:00 PKT).
 * "Changed, not full" loads: every change in OLTP is picked up incrementally, and only the
   affected days are re-aggregated.
-* One timezone rule everywhere: **business dates are Pakistan dates** (`Asia/Karachi`,
-  configurable), derived once during ETL and stored as an integer `date_key` (YYYYMMDD).
+* Report dates follow the source DB calendar (`SYSTEM` / configured IANA timezone),
+  derived once during ETL and stored as an integer `date_key` (YYYYMMDD).
 
 ---
 
@@ -130,7 +130,7 @@ partitions that changed, never the whole table.
 | Mode | Trigger | What it does |
 |---|---|---|
 | `incremental` | every `DW_INCREMENTAL_MINUTES` (default 15) | pulls rows changed since last watermark (with overlap), upserts facts, rebuilds affected date keys |
-| `daily` | every day at `DW_DAILY_SYNC_TIME` (default `12:00`, `Asia/Karachi`) | incremental + reconciles the last `DW_RECONCILE_DAYS` days (catches hard deletes/edits) + refreshes inventory snapshot |
+| `daily` | every day at `DW_DAILY_SYNC_TIME` (default `12:00`, `DW_SCHEDULER_TIMEZONE_NAME`) | incremental + reconciles the last `DW_RECONCILE_DAYS` days (catches hard deletes/edits) + refreshes inventory snapshot |
 | `backfill` | `npm run dw:backfill` | full load of all history |
 | `rebuild` | `npm run dw:rebuild` | truncate facts/aggregates and reload everything |
 
@@ -149,7 +149,7 @@ committed mid-run. Upserts are idempotent, so re-reading rows is harmless.
 
 ### 4.3 Affected partitions
 
-Every staged row yields a `date_key` (Pakistan date; backdated sales use `sale_date`).
+Every staged row yields a `date_key` (source DB calendar date; backdated sales use `sale_date`).
 The ETL collects the distinct affected `date_key`s and, for monthly marts, the affected
 `month_key`s. Only those partitions are deleted and rebuilt from facts.
 
@@ -211,7 +211,8 @@ This service exposes the same paths directly:
 ## 6. Timezone rules
 
 * OLTP timestamps are stored as UTC (`config/database.js` uses `timezone: 'Z'`).
-* One rule: **business date = date in `REPORT_TIMEZONE_NAME`** (default `Asia/Karachi`).
+* Report date = date in `REPORT_TIMEZONE_NAME`, aligned to `REPORT_TIMEZONE` for SQL conversion.
+* The daily ETL scheduler uses its separate `DW_SCHEDULER_TIMEZONE_NAME` setting.
 * Derived once in ETL via `services/warehouse/dateKeys.js`; stored as `date_key`.
 * Backdated sales use `sales.sale_date` as the business date (matches user intent).
 * No JavaScript `toISOString().split('T')[0]` or bare `toLocaleDateString()` anywhere in
@@ -254,8 +255,9 @@ DW_DB_POOL_LIMIT=5
 DW_DB_QUEUE_LIMIT=50
 
 # Report timezone. Both values must describe the same zone.
-REPORT_TIMEZONE=+05:00
-REPORT_TIMEZONE_NAME=Asia/Karachi
+REPORT_TIMEZONE=SYSTEM
+REPORT_TIMEZONE_NAME=Europe/Berlin
+DW_SCHEDULER_TIMEZONE_NAME=Asia/Karachi
 
 # ETL scheduling
 DW_SCHEDULER_ENABLED=true

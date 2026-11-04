@@ -13,6 +13,7 @@ const { runEtl, isRunning } = require('./etlOrchestrator');
 
 const ENABLED = String(process.env.DW_SCHEDULER_ENABLED || 'true').toLowerCase() !== 'false';
 const DAILY_TIME = process.env.DW_DAILY_SYNC_TIME || '12:00';
+const SCHEDULER_TIMEZONE_NAME = process.env.DW_SCHEDULER_TIMEZONE_NAME || 'Asia/Karachi';
 const INCREMENTAL_MINUTES = Math.max(1, parseInt(process.env.DW_INCREMENTAL_MINUTES, 10) || 15);
 const STARTUP_DELAY_MS = Math.max(0, parseInt(process.env.DW_STARTUP_DELAY_SECONDS, 10) || 15) * 1000;
 
@@ -21,7 +22,7 @@ let dailyTimer = null;
 let started = false;
 
 const partsFormatter = new Intl.DateTimeFormat('en-US', {
-  timeZone: REPORT_TIMEZONE_NAME,
+  timeZone: SCHEDULER_TIMEZONE_NAME,
   year: 'numeric',
   month: '2-digit',
   day: '2-digit',
