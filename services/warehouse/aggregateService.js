@@ -109,7 +109,7 @@ SELECT
   COUNT(*),
   SUM(CASE WHEN i.cost_price = 0 THEN 1 ELSE 0 END)
 FROM fact_sale_items i
-INNER JOIN fact_sales s ON s.id = i.sale_id
+INNER JOIN fact_sales s ON s.sale_id = i.sale_id
 WHERE i.date_key IN (${placeholders(n)})
   AND i.is_clinic_line = 0
   AND i.product_key IS NOT NULL
@@ -131,7 +131,7 @@ SELECT
   SUM(i.total),
   COUNT(*)
 FROM fact_sale_items i
-INNER JOIN fact_sales s ON s.id = i.sale_id
+INNER JOIN fact_sales s ON s.sale_id = i.sale_id
 WHERE i.date_key IN (${placeholders(n)})
   AND i.is_clinic_line = 1
   AND i.service_key IS NOT NULL
