@@ -237,8 +237,8 @@ async function syncSales({
 
       // Legacy sales report strips clinic lines and pro-rates payment fields
       // by the product share of the bill. Precompute it so report reads are pure sums.
-      const denom = total > 0 ? total : (productTotal + clinicTotal);
-      const share = denom > 0 ? productTotal / denom : (productTotal > 0 ? 1 : 0);
+      const lineTotal = productTotal + clinicTotal;
+      const share = lineTotal > 0 ? productTotal / lineTotal : (productTotal > 0 ? 1 : 0);
       const method = String(row.payment_method || 'CASH').toUpperCase();
       const payType = String(row.payment_type || '').toUpperCase();
       const payStatus = String(row.payment_status || '').toUpperCase();
