@@ -299,6 +299,7 @@ async function getSalesReports(user, query = {}) {
 
     const [byCashierRows] = await dwPool.execute(
       `SELECT a.user_key,
+              u.user_id AS user_id,
               COALESCE(u.username, CONCAT('User ', a.user_key)) AS cashier,
               SUM(a.product_sales) total,
               SUM(a.collected_amount + a.settlement_amount - a.refund_amount) collected,
@@ -307,7 +308,7 @@ async function getSalesReports(user, query = {}) {
          FROM agg_sales_daily a
          LEFT JOIN dim_user u ON u.user_key = a.user_key
         WHERE 1 = 1 ${w.sql}
-        GROUP BY a.user_key, u.username
+        GROUP BY a.user_key, u.user_id, u.username
         ORDER BY total DESC`,
       w.params
     );
@@ -394,6 +395,7 @@ async function getSalesReports(user, query = {}) {
 
     const cashierList = byCashierRows.map((r) => ({
       cashier: r.cashier,
+      userId: r.user_id,
       total: num(r.total),
       collected: num(r.collected),
       credit: num(r.credit),
