@@ -35,7 +35,7 @@ const dwConfig = {
   enableKeepAlive: true,
   keepAliveInitialDelay: 0,
   charset: 'utf8mb4',
-  timezone: '+05:00',
+  timezone: 'Z',
   supportBigNumbers: true,
   bigNumberStrings: true,
   multipleStatements: false,

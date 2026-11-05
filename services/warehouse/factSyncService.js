@@ -304,6 +304,90 @@ async function syncSales({
   return { rows: written, maxId, dateKeys: [...dateKeySet] };
 }
 
+const SHIFT_SESSION_COLUMNS = [
+  'session_id', 'shift_id', 'date_key', 'scope_key', 'user_key', 'status',
+  'shift_name', 'scheduled_start', 'scheduled_end', 'actual_start_time',
+  'actual_end_time', 'actual_start_utc', 'actual_end_utc', 'initial_cash', 'final_cash',
+];
+const SHIFT_SESSION_UPDATE = SHIFT_SESSION_COLUMNS.filter((c) => c !== 'session_id');
+
+async function syncShiftSessions({
+  mode, fromKey, toKey, state, batchSize = BATCH_SIZE,
+}) {
+  const dateExpr = 'DATE(ss.actual_start_time)';
+  let cursor = 0;
+  let written = 0;
+  let maxId = 0;
+  const dateKeySet = new Set();
+
+  for (;;) {
+    const p = buildPredicate({
+      alias: 'ss',
+      idColumn: 'id',
+      tsColumns: [],
+      mode,
+      highWaterId: state?.last_high_water_id,
+      watermark: state?.last_sync_at,
+      cursor,
+      dateExpr,
+      fromKey,
+      toKey,
+    });
+    const [rows] = await oltpPool.execute(
+      `SELECT ss.id, ss.shift_id, ss.user_id, ss.status,
+              DATE_FORMAT(ss.actual_start_time, '%Y%m%d') AS session_date_key,
+              DATE_FORMAT(ss.actual_start_time, '%Y-%m-%d %H:%i:%s') AS actual_start_time,
+              DATE_FORMAT(ss.actual_end_time, '%Y-%m-%d %H:%i:%s') AS actual_end_time,
+              DATE_FORMAT(CONVERT_TZ(ss.actual_start_time, 'SYSTEM', '+00:00'), '%Y-%m-%d %H:%i:%s') AS actual_start_utc,
+              DATE_FORMAT(CONVERT_TZ(ss.actual_end_time, 'SYSTEM', '+00:00'), '%Y-%m-%d %H:%i:%s') AS actual_end_utc,
+              ss.initial_cash, ss.final_cash,
+              sh.name AS shift_name, sh.start_time AS scheduled_start, sh.end_time AS scheduled_end,
+              sh.scope_type, sh.scope_id
+         FROM shift_sessions ss
+         INNER JOIN shifts sh ON sh.id = ss.shift_id
+         ${p.where}
+        ORDER BY ss.id ASC
+        LIMIT ?`,
+      [...p.params, batchSize]
+    );
+    if (!rows.length) break;
+
+    await resolveScopesForRows(rows);
+
+    const factRows = [];
+    for (const row of rows) {
+      const id = Number(row.id);
+      maxId = Math.max(maxId, id);
+      cursor = Math.max(cursor, id);
+      const dateKey = Number(row.session_date_key);
+      if (!Number.isInteger(dateKey) || dateKey <= 0) continue;
+      dateKeySet.add(dateKey);
+      factRows.push([
+        id,
+        row.shift_id || null,
+        dateKey,
+        scopeKeyOf(row),
+        dims.maps.user(row.user_id),
+        row.status || null,
+        row.shift_name || null,
+        row.scheduled_start || null,
+        row.scheduled_end || null,
+        row.actual_start_time,
+        row.actual_end_time,
+        row.actual_start_utc,
+        row.actual_end_utc,
+        num(row.initial_cash),
+        row.final_cash == null ? null : num(row.final_cash),
+      ]);
+    }
+
+    written += await upsertFacts('fact_shift_sessions', SHIFT_SESSION_COLUMNS, factRows, SHIFT_SESSION_UPDATE);
+    if (rows.length < batchSize) break;
+  }
+
+  return { rows: written, maxId, dateKeys: [...dateKeySet] };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Sale items
 // ─────────────────────────────────────────────────────────────────────────────
@@ -807,6 +891,7 @@ async function syncSalesReturns({
 
 const SOURCES = [
   { table: 'sales', run: syncSales },
+  { table: 'shift_sessions', run: syncShiftSessions },
   { table: 'sale_items', run: syncSaleItems },
   { table: 'inventory_ledger_entries', run: syncInventoryMovements },
   { table: 'ledger_entries', run: syncLedgerEntries },
@@ -851,6 +936,7 @@ async function deleteFactsInRange(fromKey, toKey) {
   if (fromKey == null || toKey == null) return;
   const tables = [
     'fact_sales',
+    'fact_shift_sessions',
     'fact_sale_items',
     'fact_inventory_movements',
     'fact_ledger_entries',
@@ -869,6 +955,7 @@ async function deleteFactsInRange(fromKey, toKey) {
 async function truncateFacts() {
   const tables = [
     'fact_sales',
+    'fact_shift_sessions',
     'fact_sale_items',
     'fact_inventory_movements',
     'fact_ledger_entries',
@@ -884,6 +971,7 @@ async function truncateFacts() {
 module.exports = {
   syncAll,
   syncSales,
+  syncShiftSessions,
   syncSaleItems,
   syncInventoryMovements,
   syncLedgerEntries,

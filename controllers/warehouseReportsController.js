@@ -23,6 +23,10 @@ const getSalesReports = (req, res) => {
   send(res, warehouseReports.getSalesReports(req.user, req.query), 'Error retrieving sales reports');
 };
 
+const getShiftSessionsReport = (req, res) => {
+  send(res, warehouseReports.getShiftSessionsReport(req.user, req.query), 'Error retrieving shift reports');
+};
+
 const getClinicSalesReports = (req, res) => {
   send(res, warehouseReports.getClinicReports(req.user, req.query), 'Error retrieving clinic reports');
 };
@@ -76,6 +80,7 @@ const postSync = async (req, res) => {
 
 module.exports = {
   getSalesReports,
+  getShiftSessionsReport,
   getClinicSalesReports,
   getInventoryReports,
   getLedgerReports,

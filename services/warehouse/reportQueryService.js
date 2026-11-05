@@ -270,9 +270,9 @@ async function getSalesReports(user, query = {}) {
 
     const k = kpiRows[0] || {};
     const [clinicDiscountRows] = await dwPool.execute(
-      `SELECT COALESCE(SUM(CASE WHEN f.is_real_sale = 1 AND f.subtotal > 0
-                                THEN f.discount * f.clinic_total / f.subtotal
-                                ELSE 0 END), 0) AS clinic_discount
+      `SELECT ROUND(COALESCE(SUM(CASE WHEN f.is_real_sale = 1 AND f.subtotal > 0
+                 THEN f.discount * f.clinic_total / f.subtotal
+                 ELSE 0 END), 0), 2) AS clinic_discount
          FROM fact_sales f
         WHERE f.deleted_at IS NULL
           AND f.status = 'COMPLETED'
@@ -511,6 +511,160 @@ async function getSalesReports(user, query = {}) {
         grossProfit: num(r.gross_profit),
       })),
     };
+  });
+}
+
+async function getShiftSessionsReport(user, query = {}) {
+  const normalizedQuery = {
+    ...query,
+    branch: query.branch ?? query.branchId,
+    cashier: user?.role === 'CASHIER' ? user.id : (query.cashier ?? query.userId),
+  };
+  const ctx = await buildContext(user, normalizedQuery);
+  const emptyTotals = {
+    sessions: 0,
+    initial_cash: 0,
+    cash_sales: 0,
+    cash_expenses: 0,
+    total_sales: 0,
+    final_cash: 0,
+    expected_cash: 0,
+    cash_difference: 0,
+  };
+  if (ctx.impossible) return { count: 0, data: [], totals: emptyTotals };
+
+  const status = query.status && query.status !== 'all' ? query.status : null;
+  const parsedLimit = Number.parseInt(query.limit, 10);
+  const limit = Math.min(Math.max(Number.isFinite(parsedLimit) ? parsedLimit : 500, 1), 2000);
+  const key = `shift-sessions:${user?.id}:${contextKey(ctx)}:${status || 'all'}:${limit}`;
+
+  return cached(key, async () => {
+    const filter = filterSql('h', ctx);
+    const statusSql = status ? ' AND h.status = ?' : '';
+    const params = [...filter.params, ...(status ? [status] : [])];
+    const [rows] = await dwPool.execute(
+      `SELECT h.session_id AS id,
+              h.shift_id,
+              u.user_id,
+              h.status,
+              CAST(h.actual_start_time AS CHAR) AS actual_start_time,
+              CAST(h.actual_end_time AS CHAR) AS actual_end_time,
+              h.initial_cash,
+              h.final_cash,
+              h.shift_name,
+              h.scheduled_start AS start_time,
+              h.scheduled_end AS end_time,
+              s.scope_type,
+              s.scope_id,
+              u.username AS cashier_name,
+              u.role,
+              CASE WHEN s.scope_type = 'BRANCH' THEN s.scope_name ELSE NULL END AS branch_name,
+              CASE WHEN s.scope_type = 'WAREHOUSE' THEN s.scope_name ELSE NULL END AS warehouse_name,
+              (SELECT COUNT(*)
+                 FROM fact_sales f
+                WHERE f.scope_key = h.scope_key
+                  AND f.user_key = h.user_key
+                  AND f.status = 'COMPLETED'
+                  AND f.deleted_at IS NULL
+                  AND f.created_at_utc >= h.actual_start_utc
+                  AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS bill_count,
+              (SELECT COALESCE(SUM(f.total), 0)
+                 FROM fact_sales f
+                WHERE f.scope_key = h.scope_key
+                  AND f.user_key = h.user_key
+                  AND f.status = 'COMPLETED'
+                  AND f.deleted_at IS NULL
+                  AND f.created_at_utc >= h.actual_start_utc
+                  AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS total_sales,
+              (SELECT COALESCE(SUM(f.total), 0)
+                 FROM fact_sales f
+                WHERE f.scope_key = h.scope_key
+                  AND f.user_key = h.user_key
+                  AND f.payment_method = 'CASH'
+                  AND f.status = 'COMPLETED'
+                  AND f.deleted_at IS NULL
+                  AND f.created_at_utc >= h.actual_start_utc
+                  AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS cash_sales,
+              (SELECT COALESCE(SUM(f.total), 0)
+                 FROM fact_sales f
+                WHERE f.scope_key = h.scope_key
+                  AND f.user_key = h.user_key
+                  AND f.payment_method = 'CARD'
+                  AND f.status = 'COMPLETED'
+                  AND f.deleted_at IS NULL
+                  AND f.created_at_utc >= h.actual_start_utc
+                  AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS card_sales,
+              (SELECT COALESCE(SUM(f.total), 0)
+                 FROM fact_sales f
+                WHERE f.scope_key = h.scope_key
+                  AND f.user_key = h.user_key
+                  AND f.payment_method = 'MOBILE_PAYMENT'
+                  AND f.status = 'COMPLETED'
+                  AND f.deleted_at IS NULL
+                  AND f.created_at_utc >= h.actual_start_utc
+                  AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS mobile_sales,
+              (SELECT COALESCE(SUM(f.total), 0)
+                 FROM fact_sales f
+                WHERE f.scope_key = h.scope_key
+                  AND f.user_key = h.user_key
+                  AND f.payment_method = 'FULLY_CREDIT'
+                  AND f.status = 'COMPLETED'
+                  AND f.deleted_at IS NULL
+                  AND f.created_at_utc >= h.actual_start_utc
+                  AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS credit_sales,
+              (SELECT COALESCE(SUM(e.amount), 0)
+                 FROM fact_expenses e
+                WHERE e.scope_key = h.scope_key
+                  AND e.user_key = h.user_key
+                  AND e.type = 'EXPENSE'
+                  AND e.payment_method = 'CASH'
+                  AND e.status = 'APPROVED'
+                  AND e.created_at_utc >= h.actual_start_utc
+                  AND e.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS cash_expenses
+         FROM fact_shift_sessions h
+         LEFT JOIN dim_scope s ON s.scope_key = h.scope_key
+         LEFT JOIN dim_user u ON u.user_key = h.user_key
+        WHERE 1 = 1 ${filter.sql}${statusSql}
+        ORDER BY h.actual_start_time DESC
+        LIMIT ${limit}`,
+      params
+    );
+
+    const data = rows.map((row) => {
+      const initialCash = num(row.initial_cash);
+      const cashSales = num(row.cash_sales);
+      const cashExpenses = num(row.cash_expenses);
+      const finalCash = row.final_cash == null ? null : num(row.final_cash);
+      const expectedCash = initialCash + cashSales - cashExpenses;
+      return {
+        ...row,
+        initial_cash: initialCash,
+        final_cash: finalCash,
+        bill_count: num(row.bill_count),
+        total_sales: num(row.total_sales),
+        cash_sales: cashSales,
+        cash_expenses: cashExpenses,
+        card_sales: num(row.card_sales),
+        mobile_sales: num(row.mobile_sales),
+        credit_sales: num(row.credit_sales),
+        expected_cash: expectedCash,
+        cash_difference: finalCash == null ? null : finalCash - expectedCash,
+      };
+    });
+
+    const totals = data.reduce((acc, row) => {
+      acc.sessions += 1;
+      acc.initial_cash += row.initial_cash;
+      acc.cash_sales += row.cash_sales;
+      acc.cash_expenses += row.cash_expenses;
+      acc.total_sales += row.total_sales;
+      acc.final_cash += row.final_cash || 0;
+      acc.expected_cash += row.expected_cash;
+      acc.cash_difference += row.cash_difference || 0;
+      return acc;
+    }, { ...emptyTotals });
+
+    return { count: data.length, data, totals };
   });
 }
 
@@ -1245,6 +1399,7 @@ async function getWarehouseStatus() {
 
 module.exports = {
   getSalesReports,
+  getShiftSessionsReport,
   getClinicReports,
   getInventoryReports,
   getLedgerReports,

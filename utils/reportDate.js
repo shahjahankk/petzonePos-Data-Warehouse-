@@ -5,7 +5,7 @@
  * timezone before extracting their date.
  */
 
-const REPORT_TIMEZONE = process.env.REPORT_TIMEZONE || 'SYSTEM';
+const REPORT_TIMEZONE = process.env.REPORT_TIMEZONE || '+00:00';
 
 /**
  * Returns a SQL expression that converts a UTC timestamp column to the report

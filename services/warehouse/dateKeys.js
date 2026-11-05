@@ -8,7 +8,7 @@
  *   month_key = YYYYMM    (e.g. 202610)
  */
 
-const REPORT_TIMEZONE_NAME = process.env.REPORT_TIMEZONE_NAME || 'Europe/Berlin';
+const REPORT_TIMEZONE_NAME = process.env.REPORT_TIMEZONE_NAME || 'UTC';
 
 const partsFormatter = new Intl.DateTimeFormat('en-US', {
   timeZone: REPORT_TIMEZONE_NAME,
