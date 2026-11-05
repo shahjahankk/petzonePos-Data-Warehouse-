@@ -310,6 +310,26 @@ async function resolveScopeKey(scopeType, rawScopeId) {
   const hit = state.scopeByAlias.get(cacheKey);
   if (hit != null) return hit;
 
+  // Before creating a new scope, check if one already exists with this name
+  // (case-insensitive). Prevents duplicate scope_keys for the same branch/warehouse
+  // when sales and shifts use different identifier formats (ID vs name).
+  const [existing] = await dwPool.execute(
+    `SELECT scope_key FROM dim_scope
+     WHERE scope_type = ? AND LOWER(scope_name) = LOWER(?)
+     LIMIT 1`,
+    [type, alias]
+  );
+  if (existing[0]?.scope_key != null) {
+    const scopeKey = Number(existing[0].scope_key);
+    state.scopeByAlias.set(cacheKey, scopeKey);
+    await dwPool.execute(
+      `INSERT INTO map_scope_alias (scope_type, alias, scope_key) VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE scope_key = VALUES(scope_key)`,
+      [type, alias, scopeKey]
+    );
+    return scopeKey;
+  }
+
   await dwPool.execute(
     `INSERT INTO dim_scope (scope_type, scope_id, scope_name, is_active)
      VALUES (?, ?, ?, 1)
