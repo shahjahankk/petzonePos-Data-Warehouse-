@@ -49,6 +49,11 @@ const tzSqlDate = (expr) => `DATE(CONVERT_TZ(${expr}, '${SOURCE_TIMEZONE}', '${R
 const bizDateKeySql = (expr) => `DATE_FORMAT(CONVERT_TZ(${expr}, '${SOURCE_TIMEZONE}', '${REPORT_TIMEZONE}'), '%Y%m%d')`;
 const utcSqlDateTime = (expr) => `CONVERT_TZ(${expr}, '${SOURCE_TIMEZONE}', '+00:00')`;
 
+// Source-timezone date key (no conversion). Used as fallback when sale_date is
+// null so the DW date key matches what OLTP displays (local CET date).
+const srcDateKeySql = (expr) => `DATE_FORMAT(${expr}, '%Y%m%d')`;
+const srcDateSql = (expr) => `DATE(${expr})`;
+
 function normalizedScopeType(value) {
   const t = String(value || 'BRANCH').trim().toUpperCase();
   return t === 'WAREHOUSE' ? 'WAREHOUSE' : 'BRANCH';
@@ -178,7 +183,7 @@ async function syncSales({
     's.payment_amount', 's.credit_amount', 's.status',
     's.customer_name', 's.customer_phone',
     cols.has('sale_date') ? "DATE_FORMAT(s.sale_date, '%Y%m%d') AS sale_date_key" : 'NULL AS sale_date_key',
-    `${bizDateKeySql('s.created_at')} AS created_date_key`,
+    `${srcDateKeySql('s.created_at')} AS created_date_key`,
     `${utcSqlDateTime('s.created_at')} AS created_at_utc`,
     cols.has('updated_at') ? `${utcSqlDateTime('s.updated_at')} AS updated_at_utc` : 'NULL AS updated_at_utc',
     cols.has('deleted_at') ? `${utcSqlDateTime('s.deleted_at')} AS deleted_at_utc` : 'NULL AS deleted_at_utc',
@@ -187,7 +192,7 @@ async function syncSales({
     cols.has('customer_id') ? 's.customer_id' : 'NULL AS customer_id',
   ].join(', ');
 
-  const dateExpr = `COALESCE(s.sale_date, ${tzSqlDate('s.created_at')})`;
+  const dateExpr = `COALESCE(s.sale_date, ${srcDateSql('s.created_at')})`;
   let cursor = 0;
   let written = 0;
   let maxId = 0;
@@ -432,8 +437,8 @@ async function syncSaleItems({
   const dateKeySet = new Set();
 
   const saleDateExpr = saleCols.has('sale_date')
-    ? `COALESCE(s.sale_date, ${tzSqlDate('s.created_at')})`
-    : tzSqlDate('s.created_at');
+    ? `COALESCE(s.sale_date, ${srcDateSql('s.created_at')})`
+    : srcDateSql('s.created_at');
   const dateExpr = saleDateExpr;
 
   const select = [
@@ -442,7 +447,7 @@ async function syncSaleItems({
     'ii.cost_price',
     's.scope_type', 's.scope_id', 's.user_id',
     saleCols.has('sale_date') ? "DATE_FORMAT(s.sale_date, '%Y%m%d') AS sale_date_key" : 'NULL AS sale_date_key',
-    `${bizDateKeySql('s.created_at')} AS created_date_key`,
+    `${srcDateKeySql('s.created_at')} AS created_date_key`,
     saleCols.has('credit_status') ? 's.credit_status' : 'NULL AS credit_status',
     's.payment_method', 's.payment_type',
   ].join(', ');
@@ -456,7 +461,7 @@ async function syncSaleItems({
       highWaterId: state?.last_high_water_id,
       watermark: state?.last_sync_at,
       cursor,
-      dateExpr,
+      dateExpr: saleDateExpr,
       fromKey,
       toKey,
     });
