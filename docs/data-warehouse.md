@@ -21,7 +21,7 @@ Goal:
 * Daily consolidated load at a configurable time (default 12:00 PKT).
 * "Changed, not full" loads: every change in OLTP is picked up incrementally, and only the
   affected days are re-aggregated.
-* Report dates follow the OLTP reporting connection calendar (UTC by default),
+* Report dates follow the OLTP server calendar (`SYSTEM` / configured IANA timezone),
   derived once during ETL and stored as an integer `date_key` (YYYYMMDD).
 
 ---
@@ -211,7 +211,7 @@ This service exposes the same paths directly:
 ## 6. Timezone rules
 
 * OLTP timestamps are stored as UTC (`config/database.js` uses `timezone: 'Z'`).
-* Report date = date in `REPORT_TIMEZONE_NAME` (default `UTC`), aligned to `REPORT_TIMEZONE` for SQL conversion.
+* Report date = date in `REPORT_TIMEZONE_NAME` (default `Europe/Berlin` for the configured OLTP host), aligned to `REPORT_TIMEZONE` for SQL conversion.
 * The daily ETL scheduler uses its separate `DW_SCHEDULER_TIMEZONE_NAME` setting.
 * Derived once in ETL via `services/warehouse/dateKeys.js`; stored as `date_key`.
 * Backdated sales use `sales.sale_date` as the business date (matches user intent).
@@ -255,8 +255,8 @@ DW_DB_POOL_LIMIT=5
 DW_DB_QUEUE_LIMIT=50
 
 # Report timezone. Both values must describe the same zone.
-REPORT_TIMEZONE=+00:00
-REPORT_TIMEZONE_NAME=UTC
+REPORT_TIMEZONE=SYSTEM
+REPORT_TIMEZONE_NAME=Europe/Berlin
 DW_SCHEDULER_TIMEZONE_NAME=Asia/Karachi
 
 # ETL scheduling

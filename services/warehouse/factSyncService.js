@@ -12,12 +12,9 @@
 const { pool: oltpPool } = require('../../config/database');
 const { dwPool } = require('../../config/warehouseDatabase');
 const { CLINIC_LINE_SQL } = require('../../utils/clinicLines');
-const { REPORT_TIMEZONE } = require('../../utils/reportDate');
+const { SOURCE_TIMEZONE, REPORT_TIMEZONE } = require('../../utils/reportDate');
 const dims = require('./dimensionService');
 const {
-  toDateKey,
-  toDateOnly,
-  saleBusinessDate,
   dateKeyToIso,
   dateKeyToMonthKey,
 } = require('./dateKeys');
@@ -45,7 +42,12 @@ async function upsertFacts(table, columns, rows, updateColumns, chunkSize = 250)
   return written;
 }
 
-const tzSqlDate = (expr) => `DATE(CONVERT_TZ(${expr}, '+00:00', '${REPORT_TIMEZONE}'))`;
+// Source DATETIME columns are stored in the DB server timezone (SYSTEM), not
+// UTC. Convert through the source timezone so business dates and UTC copies are
+// exact regardless of the Node process timezone.
+const tzSqlDate = (expr) => `DATE(CONVERT_TZ(${expr}, '${SOURCE_TIMEZONE}', '${REPORT_TIMEZONE}'))`;
+const bizDateKeySql = (expr) => `DATE_FORMAT(CONVERT_TZ(${expr}, '${SOURCE_TIMEZONE}', '${REPORT_TIMEZONE}'), '%Y%m%d')`;
+const utcSqlDateTime = (expr) => `CONVERT_TZ(${expr}, '${SOURCE_TIMEZONE}', '+00:00')`;
 
 function normalizedScopeType(value) {
   const t = String(value || 'BRANCH').trim().toUpperCase();
@@ -62,7 +64,7 @@ function buildPredicate({
   if (mode === 'incremental') {
     if (watermark || Number(highWaterId) > 0) {
       const tsExpr = tsColumns.length
-        ? `COALESCE(${tsColumns.map((c) => `${alias}.${c}`).join(', ')})`
+        ? `COALESCE(${tsColumns.map((c) => utcSqlDateTime(`${alias}.${c}`)).join(', ')})`
         : null;
       if (tsExpr) {
         conditions.push(`(${alias}.${idColumn} > ? OR ${tsExpr} >= ?)`);
@@ -175,10 +177,11 @@ async function syncSales({
     's.payment_method', 's.payment_type', 's.payment_status',
     's.payment_amount', 's.credit_amount', 's.status',
     's.customer_name', 's.customer_phone',
-    's.created_at',
-    cols.has('sale_date') ? 's.sale_date' : 'NULL AS sale_date',
-    cols.has('updated_at') ? 's.updated_at' : 'NULL AS updated_at',
-    cols.has('deleted_at') ? 's.deleted_at' : 'NULL AS deleted_at',
+    cols.has('sale_date') ? "DATE_FORMAT(s.sale_date, '%Y%m%d') AS sale_date_key" : 'NULL AS sale_date_key',
+    `${bizDateKeySql('s.created_at')} AS created_date_key`,
+    `${utcSqlDateTime('s.created_at')} AS created_at_utc`,
+    cols.has('updated_at') ? `${utcSqlDateTime('s.updated_at')} AS updated_at_utc` : 'NULL AS updated_at_utc',
+    cols.has('deleted_at') ? `${utcSqlDateTime('s.deleted_at')} AS deleted_at_utc` : 'NULL AS deleted_at_utc',
     cols.has('shift_id') ? 's.shift_id' : 'NULL AS shift_id',
     cols.has('credit_status') ? 's.credit_status' : 'NULL AS credit_status',
     cols.has('customer_id') ? 's.customer_id' : 'NULL AS customer_id',
@@ -220,8 +223,11 @@ async function syncSales({
       maxId = Math.max(maxId, id);
       cursor = Math.max(cursor, id);
 
-      const dateKey = saleBusinessDate(row);
-      if (dateKey == null) continue;
+      const saleKey = Number(row.sale_date_key);
+      const dateKey = Number.isInteger(saleKey) && saleKey > 0
+        ? saleKey
+        : Number(row.created_date_key);
+      if (!Number.isInteger(dateKey) || dateKey <= 0) continue;
       dateKeySet.add(dateKey);
       const { isRefund, isSettlement, isReal } = classifySale(row);
       const split = totals.get(id);
@@ -260,8 +266,8 @@ async function syncSales({
         id,
         row.invoice_no || null,
         dateKey,
-        row.created_at || null,
-        row.updated_at || null,
+        row.created_at_utc || null,
+        row.updated_at_utc || null,
         scopeKeyOf(row),
         dims.maps.user(row.user_id),
         dims.maps.customer(row.customer_id),
@@ -292,7 +298,7 @@ async function syncSales({
         collected,
         cogs,
         isReal ? productTotal - cogs : 0,
-        row.deleted_at || null,
+        row.deleted_at_utc || null,
       ]);
     }
 
@@ -314,7 +320,7 @@ const SHIFT_SESSION_UPDATE = SHIFT_SESSION_COLUMNS.filter((c) => c !== 'session_
 async function syncShiftSessions({
   mode, fromKey, toKey, state, batchSize = BATCH_SIZE,
 }) {
-  const dateExpr = 'DATE(ss.actual_start_time)';
+  const dateExpr = tzSqlDate('ss.actual_start_time');
   let cursor = 0;
   let written = 0;
   let maxId = 0;
@@ -335,11 +341,11 @@ async function syncShiftSessions({
     });
     const [rows] = await oltpPool.execute(
       `SELECT ss.id, ss.shift_id, ss.user_id, ss.status,
-              DATE_FORMAT(ss.actual_start_time, '%Y%m%d') AS session_date_key,
+              ${bizDateKeySql('ss.actual_start_time')} AS session_date_key,
               DATE_FORMAT(ss.actual_start_time, '%Y-%m-%d %H:%i:%s') AS actual_start_time,
               DATE_FORMAT(ss.actual_end_time, '%Y-%m-%d %H:%i:%s') AS actual_end_time,
-              DATE_FORMAT(CONVERT_TZ(ss.actual_start_time, 'SYSTEM', '+00:00'), '%Y-%m-%d %H:%i:%s') AS actual_start_utc,
-              DATE_FORMAT(CONVERT_TZ(ss.actual_end_time, 'SYSTEM', '+00:00'), '%Y-%m-%d %H:%i:%s') AS actual_end_utc,
+              DATE_FORMAT(${utcSqlDateTime('ss.actual_start_time')}, '%Y-%m-%d %H:%i:%s') AS actual_start_utc,
+              DATE_FORMAT(${utcSqlDateTime('ss.actual_end_time')}, '%Y-%m-%d %H:%i:%s') AS actual_end_utc,
               ss.initial_cash, ss.final_cash,
               sh.name AS shift_name, sh.start_time AS scheduled_start, sh.end_time AS scheduled_end,
               sh.scope_type, sh.scope_id
@@ -435,8 +441,8 @@ async function syncSaleItems({
     'si.sku', 'si.name', 'si.quantity', 'si.unit_price', 'si.discount', 'si.total',
     'ii.cost_price',
     's.scope_type', 's.scope_id', 's.user_id',
-    saleCols.has('sale_date') ? 's.sale_date' : 'NULL AS sale_date',
-    's.created_at AS sale_created_at',
+    saleCols.has('sale_date') ? "DATE_FORMAT(s.sale_date, '%Y%m%d') AS sale_date_key" : 'NULL AS sale_date_key',
+    `${bizDateKeySql('s.created_at')} AS created_date_key`,
     saleCols.has('credit_status') ? 's.credit_status' : 'NULL AS credit_status',
     's.payment_method', 's.payment_type',
   ].join(', ');
@@ -473,8 +479,11 @@ async function syncSaleItems({
       maxId = Math.max(maxId, id);
       cursor = Math.max(cursor, id);
 
-      const dateKey = saleBusinessDate({ sale_date: row.sale_date, created_at: row.sale_created_at });
-      if (dateKey == null) continue;
+      const saleKey = Number(row.sale_date_key);
+      const dateKey = Number.isInteger(saleKey) && saleKey > 0
+        ? saleKey
+        : Number(row.created_date_key);
+      if (!Number.isInteger(dateKey) || dateKey <= 0) continue;
       dateKeySet.add(dateKey);
 
       const name = String(row.name || '').trim();
@@ -544,7 +553,9 @@ async function syncInventoryMovements({
     cols.has('reference_type') ? 'le.reference_type' : 'NULL AS reference_type',
     cols.has('reference_id') ? 'le.reference_id' : 'NULL AS reference_id',
     cols.has('entry_date') ? 'le.entry_date' : 'NULL AS entry_date',
-    'le.created_at',
+    cols.has('entry_date') ? "DATE_FORMAT(le.entry_date, '%Y%m%d') AS entry_date_key" : 'NULL AS entry_date_key',
+    `${bizDateKeySql('le.created_at')} AS created_date_key`,
+    `${utcSqlDateTime('le.created_at')} AS created_at_utc`,
     'ii.cost_price',
   ].join(', ');
 
@@ -584,8 +595,11 @@ async function syncInventoryMovements({
       maxId = Math.max(maxId, id);
       cursor = Math.max(cursor, id);
 
-      const dateKey = row.entry_date ? toDateKey(row.entry_date) : toDateKey(row.created_at);
-      if (dateKey == null) continue;
+      const entryKey = Number(row.entry_date_key);
+      const dateKey = Number.isInteger(entryKey) && entryKey > 0
+        ? entryKey
+        : Number(row.created_date_key);
+      if (!Number.isInteger(dateKey) || dateKey <= 0) continue;
       dateKeySet.add(dateKey);
       const unitCost = num(row.cost_price);
       const qty = num(row.quantity_in) + num(row.quantity_out);
@@ -604,7 +618,7 @@ async function syncInventoryMovements({
         row.reference_type || null,
         row.reference_id || null,
         row.entry_date || null,
-        row.created_at || null,
+        row.created_at_utc || null,
       ]);
     }
 
@@ -642,7 +656,8 @@ async function syncLedgerEntries({
     cols.has('reference_id') ? 'le.reference_id' : 'NULL AS reference_id',
     cols.has('description') ? 'le.description' : 'NULL AS description',
     cols.has('created_by') ? 'le.created_by' : 'NULL AS created_by',
-    'le.created_at',
+    `${bizDateKeySql('le.created_at')} AS created_date_key`,
+    `${utcSqlDateTime('le.created_at')} AS created_at_utc`,
     'l.account_name', 'l.account_type', 'l.scope_type', 'l.scope_id',
   ].join(', ');
 
@@ -677,8 +692,8 @@ async function syncLedgerEntries({
       maxId = Math.max(maxId, id);
       cursor = Math.max(cursor, id);
 
-      const dateKey = toDateKey(row.created_at);
-      if (dateKey == null) continue;
+      const dateKey = Number(row.created_date_key);
+      if (!Number.isInteger(dateKey) || dateKey <= 0) continue;
       dateKeySet.add(dateKey);
 
       factRows.push([
@@ -694,7 +709,7 @@ async function syncLedgerEntries({
         row.description || null,
         scopeKeyOf(row),
         row.created_by || null,
-        row.created_at || null,
+        row.created_at_utc || null,
       ]);
     }
 
@@ -734,8 +749,9 @@ async function syncExpenses({
     'v.type', 'v.category',
     cols.has('expense_category') ? 'v.expense_category' : 'NULL AS expense_category',
     cols.has('payment_method') ? 'v.payment_method' : 'NULL AS payment_method',
-    'v.amount', 'v.status', 'v.created_at',
-    cols.has('updated_at') ? 'v.updated_at' : 'NULL AS updated_at',
+    'v.amount', 'v.status',
+    `${bizDateKeySql('v.created_at')} AS created_date_key`,
+    `${utcSqlDateTime('v.created_at')} AS created_at_utc`,
   ].join(', ');
 
   for (;;) {
@@ -765,8 +781,8 @@ async function syncExpenses({
       maxId = Math.max(maxId, id);
       cursor = Math.max(cursor, id);
 
-      const dateKey = toDateKey(row.created_at);
-      if (dateKey == null) continue;
+      const dateKey = Number(row.created_date_key);
+      if (!Number.isInteger(dateKey) || dateKey <= 0) continue;
       dateKeySet.add(dateKey);
 
       factRows.push([
@@ -781,7 +797,7 @@ async function syncExpenses({
         row.payment_method || null,
         num(row.amount),
         row.status || null,
-        row.created_at || null,
+        row.created_at_utc || null,
       ]);
     }
 
@@ -824,7 +840,8 @@ async function syncSalesReturns({
     cols.has('return_no') ? 'r.return_no' : 'NULL AS return_no',
     cols.has('total_refund') ? 'r.total_refund' : (cols.has('refund_amount') ? 'r.refund_amount AS total_refund' : '0 AS total_refund'),
     cols.has('status') ? 'r.status' : "'COMPLETED' AS status",
-    'r.created_at',
+    `${bizDateKeySql('r.created_at')} AS created_date_key`,
+    `${utcSqlDateTime('r.created_at')} AS created_at_utc`,
     cols.has('user_id') ? 'r.user_id' : 'NULL AS user_id',
     saleCols.has('scope_type') ? 's.scope_type' : 'NULL AS scope_type',
     saleCols.has('scope_id') ? 's.scope_id' : 'NULL AS scope_id',
@@ -865,8 +882,8 @@ async function syncSalesReturns({
       maxId = Math.max(maxId, id);
       cursor = Math.max(cursor, id);
 
-      const dateKey = toDateKey(row.created_at);
-      if (dateKey == null) continue;
+      const dateKey = Number(row.created_date_key);
+      if (!Number.isInteger(dateKey) || dateKey <= 0) continue;
       dateKeySet.add(dateKey);
 
       factRows.push([
@@ -878,7 +895,7 @@ async function syncSalesReturns({
         row.return_no || null,
         num(row.total_refund),
         row.status || null,
-        row.created_at || null,
+        row.created_at_utc || null,
       ]);
     }
 

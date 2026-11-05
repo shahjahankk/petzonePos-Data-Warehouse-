@@ -16,6 +16,7 @@ const {
   todayDateKey,
   shiftDateKey,
 } = require('./dateKeys');
+const { SOURCE_TIMEZONE, REPORT_TIMEZONE } = require('../../utils/reportDate');
 
 const num = (v) => {
   const n = Number(v);
@@ -525,6 +526,7 @@ async function getShiftSessionsReport(user, query = {}) {
     sessions: 0,
     initial_cash: 0,
     cash_sales: 0,
+    cash_refunds: 0,
     cash_expenses: 0,
     total_sales: 0,
     final_cash: 0,
@@ -547,8 +549,8 @@ async function getShiftSessionsReport(user, query = {}) {
               h.shift_id,
               u.user_id,
               h.status,
-              CAST(h.actual_start_time AS CHAR) AS actual_start_time,
-              CAST(h.actual_end_time AS CHAR) AS actual_end_time,
+              DATE_FORMAT(CONVERT_TZ(h.actual_start_time, '${SOURCE_TIMEZONE}', '${REPORT_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS actual_start_time,
+              DATE_FORMAT(CONVERT_TZ(h.actual_end_time, '${SOURCE_TIMEZONE}', '${REPORT_TIMEZONE}'), '%Y-%m-%d %H:%i:%s') AS actual_end_time,
               h.initial_cash,
               h.final_cash,
               h.shift_name,
@@ -612,6 +614,15 @@ async function getShiftSessionsReport(user, query = {}) {
                   AND f.deleted_at IS NULL
                   AND f.created_at_utc >= h.actual_start_utc
                   AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS credit_sales,
+              (SELECT COALESCE(SUM(f.total), 0)
+                 FROM fact_sales f
+                WHERE f.scope_key = h.scope_key
+                  AND f.user_key = h.user_key
+                  AND f.is_refund = 1
+                  AND f.status = 'COMPLETED'
+                  AND f.deleted_at IS NULL
+                  AND f.created_at_utc >= h.actual_start_utc
+                  AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS cash_refunds,
               (SELECT COALESCE(SUM(e.amount), 0)
                  FROM fact_expenses e
                 WHERE e.scope_key = h.scope_key
@@ -633,9 +644,10 @@ async function getShiftSessionsReport(user, query = {}) {
     const data = rows.map((row) => {
       const initialCash = num(row.initial_cash);
       const cashSales = num(row.cash_sales);
+      const cashRefunds = num(row.cash_refunds);
       const cashExpenses = num(row.cash_expenses);
       const finalCash = row.final_cash == null ? null : num(row.final_cash);
-      const expectedCash = initialCash + cashSales - cashExpenses;
+      const expectedCash = initialCash + cashSales + cashRefunds - cashExpenses;
       return {
         ...row,
         initial_cash: initialCash,
@@ -643,6 +655,7 @@ async function getShiftSessionsReport(user, query = {}) {
         bill_count: num(row.bill_count),
         total_sales: num(row.total_sales),
         cash_sales: cashSales,
+        cash_refunds: cashRefunds,
         cash_expenses: cashExpenses,
         card_sales: num(row.card_sales),
         mobile_sales: num(row.mobile_sales),
@@ -656,6 +669,7 @@ async function getShiftSessionsReport(user, query = {}) {
       acc.sessions += 1;
       acc.initial_cash += row.initial_cash;
       acc.cash_sales += row.cash_sales;
+      acc.cash_refunds += row.cash_refunds;
       acc.cash_expenses += row.cash_expenses;
       acc.total_sales += row.total_sales;
       acc.final_cash += row.final_cash || 0;

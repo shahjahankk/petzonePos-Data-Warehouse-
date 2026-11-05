@@ -27,9 +27,14 @@ const dbConfig = {
   bigNumberStrings: true,
 };
 
+// TIMESTAMP columns are returned in the session timezone. Keep the session
+// aligned with SOURCE_TIMEZONE so both TIMESTAMP and DATETIME columns are read
+// in the same (source) timezone before CONVERT_TZ shifts them to business time.
+const sourceTimeZone = process.env.SOURCE_TIMEZONE || 'SYSTEM';
+
 const pool = mysql.createPool(dbConfig);
 pool.on('connection', (connection) => {
-  connection.query("SET time_zone = '+00:00'");
+  connection.query(`SET time_zone = '${sourceTimeZone.replace(/'/g, "''")}'`);
 });
 
 async function connectDB() {
