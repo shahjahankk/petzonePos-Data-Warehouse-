@@ -80,8 +80,13 @@ FROM (
     f.product_paid, f.product_collected, f.product_credit,
     f.product_discount, f.product_tax, f.cogs, f.gross_profit,
     CASE
-      WHEN UPPER(COALESCE(f.payment_method, '')) IN ('CASH_REFUND', 'REFUND') THEN 'REFUND'
-      WHEN UPPER(COALESCE(f.payment_type, '')) = 'OUTSTANDING_SETTLEMENT' THEN 'SETTLEMENT'
+      WHEN f.is_refund = 1
+        OR UPPER(COALESCE(f.payment_method, '')) IN ('CASH_REFUND', 'REFUND')
+        OR UPPER(COALESCE(f.payment_type, '')) = 'REFUND' THEN 'REFUND'
+      WHEN f.is_settlement = 1
+        OR UPPER(COALESCE(f.payment_type, '')) IN ('OUTSTANDING_SETTLEMENT', 'CREDIT_REFUND_SETTLEMENT') THEN 'SETTLEMENT'
+      WHEN UPPER(COALESCE(f.payment_method, '')) = 'EXCHANGE'
+        OR UPPER(COALESCE(f.payment_type, '')) = 'EXCHANGE' THEN 'EXCHANGE'
       WHEN UPPER(COALESCE(f.payment_method, '')) = 'FULLY_CREDIT' THEN 'FULLY_CREDIT'
       WHEN UPPER(COALESCE(f.payment_method, '')) = 'PARTIAL'
         OR UPPER(COALESCE(f.payment_type, '')) IN ('PARTIAL', 'PARTIAL_PAYMENT')
@@ -142,6 +147,7 @@ WHERE i.date_key IN (${placeholders(n)})
   AND i.service_key IS NOT NULL
   AND s.status = 'COMPLETED'
   AND s.deleted_at IS NULL
+  AND s.is_real_sale = 1
   AND s.clinic_eligible = 1
 GROUP BY i.date_key, COALESCE(i.scope_key, 0), COALESCE(i.user_key, 0), i.service_key`;
 

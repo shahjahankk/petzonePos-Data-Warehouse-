@@ -566,6 +566,7 @@ async function getShiftSessionsReport(user, query = {}) {
                  FROM fact_sales f
                 WHERE f.scope_key = h.scope_key
                   AND f.user_key = h.user_key
+                  AND f.is_real_sale = 1
                   AND f.status = 'COMPLETED'
                   AND f.deleted_at IS NULL
                   AND f.created_at_utc >= h.actual_start_utc
@@ -574,6 +575,7 @@ async function getShiftSessionsReport(user, query = {}) {
                  FROM fact_sales f
                 WHERE f.scope_key = h.scope_key
                   AND f.user_key = h.user_key
+                  AND f.is_real_sale = 1
                   AND f.status = 'COMPLETED'
                   AND f.deleted_at IS NULL
                   AND f.created_at_utc >= h.actual_start_utc
@@ -583,6 +585,7 @@ async function getShiftSessionsReport(user, query = {}) {
                 WHERE f.scope_key = h.scope_key
                   AND f.user_key = h.user_key
                   AND f.payment_method = 'CASH'
+                  AND f.is_real_sale = 1
                   AND f.status = 'COMPLETED'
                   AND f.deleted_at IS NULL
                   AND f.created_at_utc >= h.actual_start_utc
@@ -592,6 +595,7 @@ async function getShiftSessionsReport(user, query = {}) {
                 WHERE f.scope_key = h.scope_key
                   AND f.user_key = h.user_key
                   AND f.payment_method = 'CARD'
+                  AND f.is_real_sale = 1
                   AND f.status = 'COMPLETED'
                   AND f.deleted_at IS NULL
                   AND f.created_at_utc >= h.actual_start_utc
@@ -601,6 +605,7 @@ async function getShiftSessionsReport(user, query = {}) {
                 WHERE f.scope_key = h.scope_key
                   AND f.user_key = h.user_key
                   AND f.payment_method = 'MOBILE_PAYMENT'
+                  AND f.is_real_sale = 1
                   AND f.status = 'COMPLETED'
                   AND f.deleted_at IS NULL
                   AND f.created_at_utc >= h.actual_start_utc
@@ -610,6 +615,7 @@ async function getShiftSessionsReport(user, query = {}) {
                 WHERE f.scope_key = h.scope_key
                   AND f.user_key = h.user_key
                   AND f.payment_method = 'FULLY_CREDIT'
+                  AND f.is_real_sale = 1
                   AND f.status = 'COMPLETED'
                   AND f.deleted_at IS NULL
                   AND f.created_at_utc >= h.actual_start_utc
@@ -619,6 +625,7 @@ async function getShiftSessionsReport(user, query = {}) {
                 WHERE f.scope_key = h.scope_key
                   AND f.user_key = h.user_key
                   AND f.is_refund = 1
+                  AND UPPER(f.payment_method) IN ('CASH', 'CASH_REFUND')
                   AND f.status = 'COMPLETED'
                   AND f.deleted_at IS NULL
                   AND f.created_at_utc >= h.actual_start_utc
@@ -780,6 +787,7 @@ async function getClinicReports(user, query = {}) {
          INNER JOIN fact_sales f ON f.sale_id = i.sale_id
          INNER JOIN dim_clinic_service cs ON cs.service_key = i.service_key
         WHERE i.is_clinic_line = 1
+          AND f.is_real_sale = 1
           AND f.status = 'COMPLETED'
           AND f.deleted_at IS NULL
           AND f.clinic_eligible = 1
@@ -800,6 +808,7 @@ async function getClinicReports(user, query = {}) {
          LEFT JOIN dim_scope d ON d.scope_key = f.scope_key
          LEFT JOIN dim_user u ON u.user_key = f.user_key
         WHERE i.is_clinic_line = 1
+          AND f.is_real_sale = 1
           AND f.status = 'COMPLETED'
           AND f.deleted_at IS NULL
           AND f.clinic_eligible = 1
@@ -1388,6 +1397,7 @@ async function getWarehouseStatus() {
   const [counts] = await dwPool.query(
     `SELECT
        (SELECT COUNT(*) FROM fact_sales) AS fact_sales,
+       (SELECT COUNT(*) FROM fact_sales_returns) AS fact_sales_returns,
        (SELECT COUNT(*) FROM fact_sale_items) AS fact_sale_items,
        (SELECT COUNT(*) FROM fact_inventory_movements) AS fact_inventory_movements,
        (SELECT COUNT(*) FROM fact_ledger_entries) AS fact_ledger_entries,

@@ -135,8 +135,16 @@ const SALES_UPDATE = SALES_COLUMNS.filter((c) => c !== 'sale_id');
 function classifySale(row) {
   const pm = String(row.payment_method || '').toUpperCase();
   const pt = String(row.payment_type || '').toUpperCase();
-  const isRefund = pm === 'CASH_REFUND' || pm === 'REFUND' || pt === 'CASH_REFUND' || pt === 'REFUND';
-  const isSettlement = pt === 'OUTSTANDING_SETTLEMENT';
+  const invoiceNo = String(row.invoice_no || '').toUpperCase();
+  const total = Number(row.total) || 0;
+  const isRefund =
+    pm === 'CASH_REFUND' ||
+    pm === 'REFUND' ||
+    pt === 'CASH_REFUND' ||
+    pt === 'REFUND' ||
+    invoiceNo.startsWith('RET-') ||
+    total < 0;
+  const isSettlement = pt === 'OUTSTANDING_SETTLEMENT' || pt === 'CREDIT_REFUND_SETTLEMENT';
   return { isRefund, isSettlement, isReal: !isRefund && !isSettlement };
 }
 
@@ -828,7 +836,7 @@ async function syncSalesReturns({
 }) {
   try {
     const [chk] = await oltpPool.execute("SHOW TABLES LIKE 'sales_returns'");
-    if (!chk.length) return 0;
+    if (!chk.length) return { rows: 0, maxId: 0, dateKeys: [] };
   } catch { /* ignore */ }
 
   const cols = await dims.oltpColumns('sales_returns');
