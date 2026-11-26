@@ -526,6 +526,13 @@ async function getShiftSessionsReport(user, query = {}) {
     sessions: 0,
     initial_cash: 0,
     cash_sales: 0,
+    cash_settlements: 0,
+    partial_cash: 0,
+    card_sales: 0,
+    mobile_sales: 0,
+    credit_sales: 0,
+    partial_credit: 0,
+    discount: 0,
     cash_refunds: 0,
     cash_expenses: 0,
     total_sales: 0,
@@ -580,17 +587,37 @@ async function getShiftSessionsReport(user, query = {}) {
                   AND f.deleted_at IS NULL
                   AND f.created_at_utc >= h.actual_start_utc
                   AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS total_sales,
-              (SELECT COALESCE(SUM(f.total), 0)
+              (SELECT COALESCE(SUM(f.payment_amount), 0)
+                  FROM fact_sales f
+                 WHERE f.scope_key = h.scope_key
+                   AND f.user_key = h.user_key
+                   AND f.payment_method = 'CASH'
+                   AND f.is_real_sale = 1
+                   AND f.status = 'COMPLETED'
+                   AND f.deleted_at IS NULL
+                   AND f.created_at_utc >= h.actual_start_utc
+                   AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS cash_sales,
+              (SELECT COALESCE(SUM(f.payment_amount), 0)
                  FROM fact_sales f
                 WHERE f.scope_key = h.scope_key
                   AND f.user_key = h.user_key
                   AND f.payment_method = 'CASH'
-                  AND f.is_real_sale = 1
+                  AND f.is_settlement = 1
                   AND f.status = 'COMPLETED'
                   AND f.deleted_at IS NULL
                   AND f.created_at_utc >= h.actual_start_utc
-                  AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS cash_sales,
-              (SELECT COALESCE(SUM(f.total), 0)
+                  AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS cash_settlements,
+              (SELECT COALESCE(SUM(f.payment_amount), 0)
+                 FROM fact_sales f
+                WHERE f.scope_key = h.scope_key
+                  AND f.user_key = h.user_key
+                  AND f.payment_method = 'CASH'
+                  AND f.payment_type = 'PARTIAL_PAYMENT'
+                  AND f.status = 'COMPLETED'
+                  AND f.deleted_at IS NULL
+                  AND f.created_at_utc >= h.actual_start_utc
+                  AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS partial_cash,
+              (SELECT COALESCE(SUM(f.payment_amount), 0)
                  FROM fact_sales f
                 WHERE f.scope_key = h.scope_key
                   AND f.user_key = h.user_key
@@ -600,7 +627,7 @@ async function getShiftSessionsReport(user, query = {}) {
                   AND f.deleted_at IS NULL
                   AND f.created_at_utc >= h.actual_start_utc
                   AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS card_sales,
-              (SELECT COALESCE(SUM(f.total), 0)
+              (SELECT COALESCE(SUM(f.payment_amount), 0)
                  FROM fact_sales f
                 WHERE f.scope_key = h.scope_key
                   AND f.user_key = h.user_key
@@ -620,7 +647,7 @@ async function getShiftSessionsReport(user, query = {}) {
                   AND f.deleted_at IS NULL
                   AND f.created_at_utc >= h.actual_start_utc
                   AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS credit_sales,
-              (SELECT COALESCE(SUM(f.total), 0)
+              (SELECT COALESCE(SUM(CASE WHEN COALESCE(f.payment_amount, 0) = 0 THEN f.total ELSE f.payment_amount END), 0)
                  FROM fact_sales f
                 WHERE f.scope_key = h.scope_key
                   AND f.user_key = h.user_key
@@ -630,6 +657,25 @@ async function getShiftSessionsReport(user, query = {}) {
                   AND f.deleted_at IS NULL
                   AND f.created_at_utc >= h.actual_start_utc
                   AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS cash_refunds,
+              (SELECT COALESCE(SUM(f.credit_amount), 0)
+                 FROM fact_sales f
+                WHERE f.scope_key = h.scope_key
+                  AND f.user_key = h.user_key
+                  AND (f.payment_type = 'PARTIAL_PAYMENT' OR (f.credit_amount > 0 AND f.payment_amount > 0))
+                  AND f.is_real_sale = 1
+                  AND f.status = 'COMPLETED'
+                  AND f.deleted_at IS NULL
+                  AND f.created_at_utc >= h.actual_start_utc
+                  AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS partial_credit,
+              (SELECT COALESCE(SUM(f.discount), 0)
+                 FROM fact_sales f
+                WHERE f.scope_key = h.scope_key
+                  AND f.user_key = h.user_key
+                  AND f.is_real_sale = 1
+                  AND f.status = 'COMPLETED'
+                  AND f.deleted_at IS NULL
+                  AND f.created_at_utc >= h.actual_start_utc
+                  AND f.created_at_utc <= COALESCE(h.actual_end_utc, UTC_TIMESTAMP())) AS discount,
               (SELECT COALESCE(SUM(e.amount), 0)
                  FROM fact_expenses e
                 WHERE e.scope_key = h.scope_key
@@ -651,10 +697,11 @@ async function getShiftSessionsReport(user, query = {}) {
     const data = rows.map((row) => {
       const initialCash = num(row.initial_cash);
       const cashSales = num(row.cash_sales);
+      const cashSettlements = num(row.cash_settlements);
       const cashRefunds = num(row.cash_refunds);
       const cashExpenses = num(row.cash_expenses);
       const finalCash = row.final_cash == null ? null : num(row.final_cash);
-      const expectedCash = initialCash + cashSales + cashRefunds - cashExpenses;
+      const expectedCash = initialCash + cashSales + cashSettlements + cashRefunds - cashExpenses;
       return {
         ...row,
         initial_cash: initialCash,
@@ -662,6 +709,10 @@ async function getShiftSessionsReport(user, query = {}) {
         bill_count: num(row.bill_count),
         total_sales: num(row.total_sales),
         cash_sales: cashSales,
+        cash_settlements: cashSettlements,
+        partial_cash: num(row.partial_cash),
+        partial_credit: num(row.partial_credit),
+        discount: num(row.discount),
         cash_refunds: cashRefunds,
         cash_expenses: cashExpenses,
         card_sales: num(row.card_sales),
@@ -676,8 +727,15 @@ async function getShiftSessionsReport(user, query = {}) {
       acc.sessions += 1;
       acc.initial_cash += row.initial_cash;
       acc.cash_sales += row.cash_sales;
+      acc.cash_settlements += row.cash_settlements;
+      acc.partial_cash += row.partial_cash;
+      acc.partial_credit += row.partial_credit;
+      acc.discount += row.discount;
       acc.cash_refunds += row.cash_refunds;
       acc.cash_expenses += row.cash_expenses;
+      acc.card_sales += row.card_sales;
+      acc.mobile_sales += row.mobile_sales;
+      acc.credit_sales += row.credit_sales;
       acc.total_sales += row.total_sales;
       acc.final_cash += row.final_cash || 0;
       acc.expected_cash += row.expected_cash;
