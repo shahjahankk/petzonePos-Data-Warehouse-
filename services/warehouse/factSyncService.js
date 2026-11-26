@@ -851,7 +851,7 @@ async function syncSalesReturns({
   const select = [
     'r.id', cols.has('original_sale_id') ? 'r.original_sale_id' : (cols.has('sale_id') ? 'r.sale_id AS original_sale_id' : 'NULL AS original_sale_id'),
     cols.has('return_no') ? 'r.return_no' : 'NULL AS return_no',
-    cols.has('total_refund') ? 'r.total_refund' : (cols.has('refund_amount') ? 'r.refund_amount AS total_refund' : '0 AS total_refund'),
+    cols.has('refund_amount') ? 'COALESCE(r.refund_amount, r.total_refund) AS total_refund' : (cols.has('total_refund') ? 'r.total_refund' : '0 AS total_refund'),
     cols.has('status') ? 'r.status' : "'COMPLETED' AS status",
     `${bizDateKeySql('r.created_at')} AS created_date_key`,
     `${utcSqlDateTime('r.created_at')} AS created_at_utc`,
