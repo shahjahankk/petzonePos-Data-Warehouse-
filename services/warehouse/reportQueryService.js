@@ -242,10 +242,25 @@ async function getSalesReports(user, query = {}) {
          COALESCE(SUM(a.transaction_count), 0) AS total_sales,
          COALESCE(SUM(a.product_sales), 0)     AS product_revenue,
          COALESCE(SUM(a.clinic_sales), 0)      AS clinic_revenue,
-         COALESCE(SUM(a.product_sales), 0)     AS total_revenue,
+          (SELECT COALESCE(SUM(CASE WHEN f.is_real_sale = 1 AND f.is_refund = 0
+                    AND COALESCE(f.product_total, 0) > 0
+                    THEN COALESCE(f.product_total, 0) - (CASE WHEN COALESCE(f.subtotal, 0) > 0
+                                                              THEN COALESCE(f.discount, 0) * COALESCE(f.product_total, 0) / f.subtotal
+                                                              ELSE 0 END)
+                    ELSE 0 END), 0)
+             FROM fact_sales f
+            WHERE f.deleted_at IS NULL
+              AND f.status = 'COMPLETED'
+              ${fw.sql}) AS total_revenue,
          COALESCE(SUM(a.cogs), 0)              AS total_cogs,
          COALESCE(SUM(a.gross_profit), 0)      AS gross_profit,
-         COALESCE(SUM(CASE WHEN a.payment_group = 'CASH' THEN a.product_sales ELSE 0 END), 0) AS cash_sales,
+          (SELECT COALESCE(SUM(CASE WHEN f.is_real_sale = 1 AND f.is_refund = 0
+                    AND UPPER(COALESCE(f.payment_method, '')) = 'CASH'
+                    THEN COALESCE(f.product_paid, 0) ELSE 0 END), 0)
+             FROM fact_sales f
+            WHERE f.deleted_at IS NULL
+              AND f.status = 'COMPLETED'
+              ${fw.sql}) AS cash_sales,
          COALESCE(SUM(CASE WHEN a.payment_group = 'CARD' THEN a.product_sales ELSE 0 END), 0) AS card_sales,
          COALESCE(SUM(CASE WHEN a.payment_group = 'MOBILE' THEN a.product_sales ELSE 0 END), 0) AS mobile_sales,
          COALESCE(SUM(CASE WHEN a.payment_group = 'FULLY_CREDIT' THEN a.product_sales ELSE 0 END), 0) AS fully_credit,
@@ -265,9 +280,9 @@ async function getSalesReports(user, query = {}) {
          COALESCE(SUM(a.credit_count), 0)      AS credit_count,
          COALESCE(SUM(a.partial_count), 0)     AS partial_count
        FROM agg_sales_daily a
-       WHERE 1 = 1 ${w.sql}`,
-      w.params
-    );
+        WHERE 1 = 1 ${w.sql}`,
+       [...fw.params, ...fw.params, ...w.params]
+     );
 
     const k = kpiRows[0] || {};
     const [clinicDiscountRows] = await dwPool.execute(
